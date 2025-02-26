@@ -1,9 +1,9 @@
 # Configuration
-$ClientId = "70e1355f-3082-4702-956e-13f1c9f328a3"
-$ClientSecret = "e-MLnhuFBUzMcIG60zjHC6UrWIqLMDY9RHzkV6oxu2I"
+$ClientId = "<CLIENT_ID>"
+$ClientSecret = "<CLIENT_SECRET>"
 $Region = "mypurecloud.ie"  # Change based on your region
-$GroupId = "abbd4161-510c-4b20-ab48-faa3cca3a205"
-$WorkTeamId = "eef6a722-d998-4d21-82a5-11fcd30a46eb"
+$GroupId = "<GROUP_ID>"
+$WorkTeamId = "<WORKTEAM_ID>"
 
 # Authenticate with Genesys Cloud
 $authUrl = "https://login.$Region/oauth/token"
