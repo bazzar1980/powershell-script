@@ -3,139 +3,186 @@ $ClientId = "70e1355f-3082-4702-956e-13f1c9f328a3"
 $ClientSecret = "e-MLnhuFBUzMcIG60zjHC6UrWIqLMDY9RHzkV6oxu2I"
 $Region = "mypurecloud.ie"  # Change based on your region
 $GroupId = "abbd4161-510c-4b20-ab48-faa3cca3a205"
-$WorkTeamId = "eef6a722-d998-4d21-82a5-11fcd30a46eb"
+# $WorkTeamId = "eef6a722-d998-4d21-82a5-11fcd30a46eb"
 
-# Authenticate with Genesys Cloud
-$authUrl = "https://login.$Region/oauth/token"
-$authHeaders = @{
-    "Content-Type"  = "application/x-www-form-urlencoded"
+# Define a mapping between Division IDs and Work Team IDs
+$DivisionWorkTeams = @{
+    "f2d080a0-a9a3-4fa7-9cd0-099e4cd6341f" = "eef6a722-d998-4d21-82a5-11fcd30a46eb"
+    "f8798952-cd79-4b82-b4c4-7b60631e9ded" = "9d1c66b4-5be6-439a-a8ce-1d3aa7e1ba0b"
+    "3bd1d698-e811-46bd-a2d2-7c871d7cd61e" = "7632aecd-829c-4c71-adc9-465e531e2ef7"
+    # "division_3_id" = "workteam_3_id"
 }
 
-$authBody = "grant_type=client_credentials&client_id=$ClientId&client_secret=$ClientSecret"
-$tokenResponse = Invoke-RestMethod -Uri $authUrl -Method Post -Headers $authHeaders -Body $authBody
-$AccessToken = $tokenResponse.access_token
+# Function: Authenticate with Genesys Cloud
+Function Get-AuthToken {
+    $authUrl = "https://login.$Region/oauth/token"
+    $authHeaders = @{
+        "Content-Type"  = "application/x-www-form-urlencoded"
+    }
 
+    $authBody = "grant_type=client_credentials&client_id=$ClientId&client_secret=$ClientSecret"
+
+    try {
+        $tokenResponse = Invoke-RestMethod -Uri $authUrl -Method Post -Headers $authHeaders -Body $authBody
+        return $tokenResponse.access_token
+    } catch {
+        Write-Host "❌ Authentication failed: $_"
+        exit
+    }
+}
+
+# Get Auth Token
+$AccessToken = Get-AuthToken
+
+# Headers for API requests
 $Headers = @{
     "Authorization" = "Bearer $AccessToken"
     "Content-Type"  = "application/json"
 }
 
-# Function to get users from a Genesys Cloud Group (Corrected API)
+# Function: Get Users from a Genesys Cloud Group
 Function Get-GroupUsers {
     param($GroupId)
     $groupUsersUrl = "https://api.$Region/api/v2/groups/$GroupId/members?pageSize=100"
     $allUsers = @()
 
     do {
-        Write-Host "Fetching Group Users from: $groupUsersUrl"
-        $response = Invoke-RestMethod -Uri $groupUsersUrl -Method Get -Headers $Headers
-        $allUsers += $response.entities | Select-Object -ExpandProperty id
-        $groupUsersUrl = if ($response.nextUri) { "https://api.$Region" + $response.nextUri } else { $null }
+        try {
+            Write-Host "🔍 Fetching Group Users from: $groupUsersUrl"
+            $response = Invoke-RestMethod -Uri $groupUsersUrl -Method Get -Headers $Headers
+            $allUsers += $response.entities | Select-Object -ExpandProperty id
+            $groupUsersUrl = if ($response.nextUri) { "https://api.$Region" + $response.nextUri } else { $null }
+        } catch {
+            Write-Host "❌ Error fetching group users: $_"
+            exit
+        }
     } while ($groupUsersUrl)
 
     return $allUsers
 }
 
+# Function: Get User Details (to retrieve Division ID)
+Function Get-UserDivision {
+    param($UserId)
+    $userUrl = "https://api.$Region/api/v2/users/$UserId"
 
-# Function to get users from a Genesys Cloud Work Team
+    try {
+        Write-Host "🔍 Fetching Division for User: $UserId"
+        $response = Invoke-RestMethod -Uri $userUrl -Method Get -Headers $Headers
+        return $response.division.id
+    } catch {
+        Write-Host "❌ Error fetching user division: $_"
+        return $null
+    }
+}
+
+# Function: Get Users from a Work Team
 Function Get-WorkTeamUsers {
     param($WorkTeamId)
     $workTeamUsersUrl = "https://apps.$Region/platform/api/v2/teams/$WorkTeamId/members"
-    
-    Write-Host "Fetching Work Team Users from: $workTeamUsersUrl"
-    $response = Invoke-RestMethod -Uri $workTeamUsersUrl -Method Get -Headers $Headers
 
-    if ($response.PSObject.Properties["entities"]) {
-        return $response.entities | Select-Object -ExpandProperty id
-    } else {
-        Write-Host "⚠ No 'entities' field found in Work Team Members API response. Full Response:"
-        Write-Host ($response | ConvertTo-Json -Depth 3)
+    try {
+        Write-Host "🔍 Fetching Work Team Users from: $workTeamUsersUrl"
+        $response = Invoke-RestMethod -Uri $workTeamUsersUrl -Method Get -Headers $Headers
+
+        if ($response.PSObject.Properties["entities"]) {
+            return $response.entities | Select-Object -ExpandProperty id
+        } else {
+            Write-Host "⚠ No 'entities' field found in Work Team API response."
+            return @()
+        }
+    } catch {
+        Write-Host "❌ Error fetching work team users: $_"
         return @()
     }
 }
 
-# Function to add users to the work team
-Function Add-UsersToWorkTeam {
-    param($WorkTeamId, $UsersToAdd)
+# Function: Add Users to Work Team (with Division ID)
+Function Add-UserToWorkTeam {
+    param($UserId, $DivisionId)
 
-    if ($UsersToAdd.Count -gt 0) {
-        # Ensure memberIds is always an array
-        $UsersArray = @($UsersToAdd) 
+    $WorkTeamId = $DivisionWorkTeams[$DivisionId]
+    if (-not $WorkTeamId) {
+        Write-Host "⚠ No Work Team found for Division: $DivisionId. Skipping."
+        return
+    }
 
-        # Fixed version (since API doesn't return one)
-        $WorkTeamVersion = 4
+    $WorkTeamVersion = 4
 
-        # Prepare request body with correct structure
-        $body = @{
-            "memberIds" = $UsersArray
-            "version"   = $WorkTeamVersion
-        } | ConvertTo-Json -Depth 3
+    $body = @{
+        "memberIds" = @($UserId)
+        "version"   = $WorkTeamVersion
+    } | ConvertTo-Json -Depth 3
 
-        $addUrl = "https://apps.$Region/platform/api/v2/teams/$WorkTeamId/members"
+    $addUrl = "https://apps.$Region/platform/api/v2/teams/$WorkTeamId/members"
 
-        Write-Host "🚀 Adding users: $UsersArray"
+    try {
+        Write-Host "🚀 Adding User $UserId to Work Team $WorkTeamId"
         Write-Host "🔍 JSON Payload: $body"
-
-        # Make API request
         $response = Invoke-RestMethod -Uri $addUrl -Method Post -Headers $Headers -Body $body
-        Write-Host "✅ Added users: " ($response | ConvertTo-Json -Depth 3)
-    } else {
-        Write-Host "ℹ No users to add. Skipping API call."
+        Write-Host "✅ Successfully added User $UserId to Work Team $WorkTeamId"
+    } catch {
+        Write-Host "❌ Error adding User $UserId to Work Team: $_"
     }
 }
 
-# Function to remove users from the work team
-Function Remove-UsersFromWorkTeam {
-    param($WorkTeamId, $UsersToRemove)
+# Function: Remove Users from Work Team
+Function Remove-UserFromWorkTeam {
+    param($UserId, $DivisionId)
 
-    if ($UsersToRemove.Count -gt 0) {
-        # Fixed version (since API doesn't return one)
-        $WorkTeamVersion = 1
+    $WorkTeamId = $DivisionWorkTeams[$DivisionId]
+    if (-not $WorkTeamId) {
+        Write-Host "⚠ No Work Team found for Division: $DivisionId. Skipping removal."
+        return
+    }
 
-        # Prepare request body
-        $body = @{
-            "memberIds" = $UsersToRemove
-            "version"   = $WorkTeamVersion
-        } | ConvertTo-Json -Depth 3
+    # Correct API format: Use query parameters only (no body needed)
+    $removeUrl = "https://apps.$Region/platform/api/v2/teams/$WorkTeamId/members?id=$UserId"
 
-        $removeUrl = "https://apps.$Region/platform/api/v2/teams/$WorkTeamId/members"
+    try {
+        Write-Host "❌ Removing User $UserId from Work Team $WorkTeamId"
+        Write-Host "🔍 API Call: $removeUrl"
 
-        Write-Host "❌ Removing users: $UsersToRemove"
-        Write-Host "🔍 JSON Payload: $body"
+        # Remove Content-Type to match expected API behavior
+        $Headers.Remove("Content-Type")
 
-        # Make API request
-        $response = Invoke-RestMethod -Uri $removeUrl -Method Delete -Headers $Headers -Body $body
-        Write-Host "✅ Removed users: " ($response | ConvertTo-Json -Depth 3)
-    } else {
-        Write-Host "ℹ No users to remove."
+        # Send DELETE request without a body
+        $response = Invoke-RestMethod -Uri $removeUrl -Method Delete -Headers $Headers
+        Write-Host "✅ Successfully removed User $UserId from Work Team $WorkTeamId"
+    } catch {
+        Write-Host "❌ Error removing User $UserId from Work Team: $_"
     }
 }
 
-# Get users in the Genesys Cloud Group and Work Team
+# Fetch users from the Group
 $GroupUsers = Get-GroupUsers -GroupId $GroupId
-$WorkTeamUsers = Get-WorkTeamUsers -WorkTeamId $WorkTeamId
 
-# Debugging: Print users in group and work team
-Write-Host "👥 Users in Group ($GroupId): $($GroupUsers.Count)"
-$GroupUsers | ForEach-Object { Write-Host "  - $_" }
+# Fetch users from all Work Teams
+$AllWorkTeamUsers = @{}
+foreach ($DivisionId in $DivisionWorkTeams.Keys) {
+    $WorkTeamId = $DivisionWorkTeams[$DivisionId]
+    $AllWorkTeamUsers[$DivisionId] = Get-WorkTeamUsers -WorkTeamId $WorkTeamId
+}
 
-Write-Host "🏢 Users in Work Team ($WorkTeamId): $($WorkTeamUsers.Count)"
-$WorkTeamUsers | ForEach-Object { Write-Host "  - $_" }
+# Process each user in the Group
+foreach ($UserId in $GroupUsers) {
+    $UserDivision = Get-UserDivision -UserId $UserId
 
-# Find users to add
-$UsersToAdd = $GroupUsers | Where-Object { $_ -notin $WorkTeamUsers }
-Write-Host "📌 Users to ADD: "
-$UsersToAdd | ForEach-Object { Write-Host "  - $_" }
+    if ($UserDivision) {
+        Add-UserToWorkTeam -UserId $UserId -DivisionId $UserDivision
+    }
+}
 
-# Find users to remove
-$UsersToRemove = $WorkTeamUsers | Where-Object { $_ -notin $GroupUsers }
-Write-Host "❌ Users to REMOVE: "
-$UsersToRemove | ForEach-Object { Write-Host "  - $_" }
+# Process each Work Team and remove users who are no longer in the group
+foreach ($DivisionId in $DivisionWorkTeams.Keys) {
+    $WorkTeamId = $DivisionWorkTeams[$DivisionId]
+    $WorkTeamUsers = $AllWorkTeamUsers[$DivisionId]
 
-# Add missing users to the work team
-Add-UsersToWorkTeam -WorkTeamId $WorkTeamId -UsersToAdd $UsersToAdd
+    foreach ($UserId in $WorkTeamUsers) {
+        if ($UserId -notin $GroupUsers) {
+            Remove-UserFromWorkTeam -UserId $UserId -DivisionId $DivisionId
+        }
+    }
+}
 
-# Remove extra users from the work team
-Remove-UsersFromWorkTeam -WorkTeamId $WorkTeamId -UsersToRemove $UsersToRemove
-
-Write-Host "🔄 Sync completed."
+Write-Host "✅ Sync completed successfully."
