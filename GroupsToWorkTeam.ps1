@@ -1,16 +1,16 @@
 # Configuration
-$ClientId = "70e1355f-3082-4702-956e-13f1c9f328a3"
-$ClientSecret = "e-MLnhuFBUzMcIG60zjHC6UrWIqLMDY9RHzkV6oxu2I"
+$ClientId = "<CLIENT_ID>"
+$ClientSecret = "<CLIENT_SECRET>"
 $Region = "mypurecloud.ie"  # Change based on your region
-$GroupId = "abbd4161-510c-4b20-ab48-faa3cca3a205"
+$GroupId = "<GROUP_ID>"
 # $WorkTeamId = "eef6a722-d998-4d21-82a5-11fcd30a46eb"
 
 # Define a mapping between Division IDs and Work Team IDs
 $DivisionWorkTeams = @{
-    "f2d080a0-a9a3-4fa7-9cd0-099e4cd6341f" = "eef6a722-d998-4d21-82a5-11fcd30a46eb"
-    "f8798952-cd79-4b82-b4c4-7b60631e9ded" = "9d1c66b4-5be6-439a-a8ce-1d3aa7e1ba0b"
-    "3bd1d698-e811-46bd-a2d2-7c871d7cd61e" = "7632aecd-829c-4c71-adc9-465e531e2ef7"
+    # "division_1_id" = "workteam_1_id"
+    # "division_2_id" = "workteam_2_id"
     # "division_3_id" = "workteam_3_id"
+    # "division_N_id" = "workteam_N_id"
 }
 
 # Function: Authenticate with Genesys Cloud
